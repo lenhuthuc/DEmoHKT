@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNPT LifeGuard - AI Guardian</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #000;
+            color: #0f0; /* Màu xanh Hacker */
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+        }
+
+        /* Video ẩn đi, chỉ hiện Canvas đè lên */
+        #input_video { display: none; }
+        
+        #output_canvas {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            transform: scaleX(-1); /* Lật gương camera */
+            z-index: 1;
+        }
+
+        /* Giao diện HUD điều khiển */
+        #hud-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 2;
+            pointer-events: none; /* Để bấm xuyên qua canvas */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .status-bar {
+            background: rgba(0, 20, 0, 0.7);
+            padding: 15px;
+            border: 1px solid #0f0;
+            border-radius: 5px;
+        }
+
+        #alert-box {
+            display: none;
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            padding: 30px;
+            font-size: 24px;
+            text-align: center;
+            border: 3px solid red;
+            animation: blink 0.5s infinite alternate;
+        }
+
+        @keyframes blink { from {opacity: 1;} to {opacity: 0.5;} }
+
+        /* Nút Start ban đầu */
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: #000;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        button {
+            padding: 15px 30px;
+            font-size: 20px;
+            background: #0f0;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+</head>
+<body>
+
+    <div id="start-screen">
+        <h1>VNPT LIFEGUARD SYSTEM</h1>
+        <p>AI Giám sát Sức khỏe & An toàn Lái xe</p>
+        <button onclick="startSystem()">KHỞI ĐỘNG HỆ THỐNG</button>
+    </div>
+
+    <video id="input_video"></video>
+    <canvas id="output_canvas"></canvas>
+
+    <div id="hud-layer">
+        <div class="status-bar">
+            <div>USER: <span id="user-name">Đang định danh...</span></div>
+            <div>STATUS: <span id="system-status">MONITORING</span></div>
+        </div>
+        
+        <div id="alert-box">
+            ⚠ CẢNH BÁO NGUY HIỂM ⚠<br>
+            <span id="alert-msg">Đang gọi cấp cứu...</span>
+        </div>
+
+        <div class="status-bar" style="text-align: right;">
+            <div>EAR (Mắt): <span id="debug-ear">0.00</span></div>
+            <div>ASYM (Miệng): <span id="debug-asym">0.00</span></div>
+            <div>VNPT API: <span id="api-status">READY</span></div>
+        </div>
+    </div>
+
+    <script>
+        // 1. Cấu hình biến Global
+        const videoElement = document.getElementById('input_video');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        
+        // Trạng thái hệ thống: 'NORMAL', 'SUSPECT', 'CHALLENGE', 'SOS'
+        let currentState = 'NORMAL'; 
+        let lastChallengeTime = 0;
+
+        // Các điểm Landmark quan trọng (Theo bản đồ MediaPipe)
+        const L_EYE = [33, 160, 158, 133, 153, 144]; 
+        const R_EYE = [362, 385, 387, 263, 373, 380];
+        const NOSE_TIP = 1;
+        const MOUTH_L = 61;
+        const MOUTH_R = 291;
+        const LIP_TOP = 13;
+
+        // --- HÀM KHỞI ĐỘNG ---
+        function startSystem() {
+            document.getElementById('start-screen').style.display = 'none';
+            
+            // Giả lập gọi API VNPT Face Search để Login
+            mockVnptLogin(); 
+
+            // Khởi tạo MediaPipe
+            const faceMesh = new FaceMesh({locateFile: (file) => {
+                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+            }});
+
+            faceMesh.setOptions({
+                maxNumFaces: 1,
+                refineLandmarks: true,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+
+            faceMesh.onResults(onResults);
+
+            const camera = new Camera(videoElement, {
+                onFrame: async () => {
+                    await faceMesh.send({image: videoElement});
+                },
+                width: 1280,
+                height: 720
+            });
+            camera.start();
+            speak("Hệ thống Life Guard đã kích hoạt. Chúc bạn lái xe an toàn.");
+        }
+
+        // --- HÀM XỬ LÝ KẾT QUẢ TỪ AI (Vòng lặp chính) ---
+        function onResults(results) {
+            // Vẽ lại khung hình
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                const landmarks = results.multiFaceLandmarks[0];
+                
+                // Vẽ lưới mặt (Debug Mode)
+                drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#C0C0C070', lineWidth: 1});
+
+                // --- LOGIC PHÂN TÍCH SỨC KHỎE ---
+                analyzeHealth(landmarks);
+            }
+            canvasCtx.restore();
+        }
+
+        // --- LOGIC TOÁN HỌC & Y KHOA (PHẦN QUAN TRỌNG NHẤT) ---
+        function analyzeHealth(lm) {
+            // 1. Tính chỉ số Mắt (EAR) - Phát hiện buồn ngủ
+            let leftEAR = calculateEAR(lm, L_EYE);
+            let rightEAR = calculateEAR(lm, R_EYE);
+            let avgEAR = (leftEAR + rightEAR) / 2;
+
+            // 2. Tính chỉ số Lệch miệng (Asymmetry) - Phát hiện đột quỵ
+            let nose = lm[NOSE_TIP];
+            let mouthL = lm[MOUTH_L];
+            let mouthR = lm[MOUTH_R];
+            
+            // Tính khoảng cách Euclidean
+            let distL = Math.hypot(mouthL.x - nose.x, mouthL.y - nose.y);
+            let distR = Math.hypot(mouthR.x - nose.x, mouthR.y - nose.y);
+            let asymmetry = Math.abs(distL - distR) * 100; // Nhân 100 cho dễ đọc
+
+            // Hiển thị chỉ số lên màn hình
+            document.getElementById('debug-ear').innerText = avgEAR.toFixed(2);
+            document.getElementById('debug-asym').innerText = asymmetry.toFixed(2);
+
+            // --- STATE MACHINE (Máy trạng thái) ---
+            
+            if (currentState === 'NORMAL') {
+                // Rule 1: Mắt nhắm quá lâu (EAR < 0.25)
+                // Rule 2: Miệng lệch (Asymmetry > 5.0 - số này cần tinh chỉnh khi test)
+                if (avgEAR < 0.25 || asymmetry > 10.0) {
+                    currentState = 'SUSPECT';
+                    triggerChallenge();
+                }
+            } 
+            else if (currentState === 'CHALLENGE') {
+                // Đang chờ người dùng cười để xác nhận
+                // Logic cười: Khóe miệng cao hơn môi trên
+                let isSmiling = (lm[MOUTH_L].y < lm[LIP_TOP].y) && (lm[MOUTH_R].y < lm[LIP_TOP].y);
+                
+                if (isSmiling) {
+                    speak("Tốt lắm, bạn vẫn tỉnh táo.");
+                    resetState();
+                } else if (Date.now() - lastChallengeTime > 5000) {
+                    // Hết 5 giây mà không cười -> SOS
+                    triggerSOS();
+                }
+            }
+        }
+
+        // --- CÁC HÀM HỖ TRỢ ---
+
+        function calculateEAR(lm, indices) {
+            // Tính EAR đơn giản: (Cao / Rộng)
+            // indices: [trái, mi_tren_1, mi_tren_2, phai, mi_duoi_1, mi_duoi_2]
+            let v1 = Math.hypot(lm[indices[1]].y - lm[indices[5]].y, lm[indices[1]].x - lm[indices[5]].x);
+            let v2 = Math.hypot(lm[indices[2]].y - lm[indices[4]].y, lm[indices[2]].x - lm[indices[4]].x);
+            let hor = Math.hypot(lm[indices[0]].y - lm[indices[3]].y, lm[indices[0]].x - lm[indices[3]].x);
+            return (v1 + v2) / (2.0 * hor);
+        }
+
+        function triggerChallenge() {
+            currentState = 'CHALLENGE';
+            lastChallengeTime = Date.now();
+            document.getElementById('system-status').innerText = "CHALLENGING...";
+            document.getElementById('system-status').style.color = "yellow";
+            
+            // AI NÓI:
+            speak("Cảnh báo! Tôi thấy bạn mệt mỏi. Hãy cười tươi lên nào!");
+        }
+
+        function triggerSOS() {
+            if (currentState === 'SOS') return; // Tránh gọi lặp lại
+            currentState = 'SOS';
+            
+            // Hiện cảnh báo đỏ
+            document.getElementById('alert-box').style.display = 'block';
+            speak("Nguy hiểm! Phát hiện dấu hiệu đột quỵ. Đang gửi vị trí cho bệnh viện.");
+
+            // --- GIẢ LẬP GỌI API VNPT ---
+            console.log(">>> CALLING VNPT API: /ai/v5/face/search (Identify Victim)");
+            console.log(">>> CALLING VNPT API: /location/gps (Get Coordinates)");
+            console.log(">>> SENDING SMS TO 115: [SOS] Victim NguyenVanA at 10.76, 106.66");
+            
+            document.getElementById('api-status').innerText = "SENDING SOS...";
+        }
+
+        function resetState() {
+            currentState = 'NORMAL';
+            document.getElementById('system-status').innerText = "MONITORING";
+            document.getElementById('system-status').style.color = "#0f0";
+            document.getElementById('alert-box').style.display = 'none';
+        }
+
+        // Hàm Text-to-Speech (Giọng nói AI)
+        function speak(text) {
+            let msg = new SpeechSynthesisUtterance();
+            msg.text = text;
+            msg.lang = 'vi-VN';
+            window.speechSynthesis.speak(msg);
+        }
+
+        // Hàm giả lập Login VNPT
+        function mockVnptLogin() {
+            // Thực tế bạn sẽ gọi fetch() tới API VNPT ở đây
+            setTimeout(() => {
+                document.getElementById('user-name').innerText = "NGUYEN VAN A (ID: 8839)";
+            }, 2000);
+        }
+
+        // Hàm vẽ của MediaPipe (cần import thêm nếu muốn vẽ đẹp, ở đây dùng bản simple)
+        // Lưu ý: code này dùng biến global FaceMesh từ CDN
+    </script>
+</body>
+</html>
