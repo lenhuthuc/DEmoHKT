@@ -1,301 +1,452 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VNPT LifeGuard - AI Guardian</title>
-    <style>
-        body {
-            margin: 0;
-            background-color: #000;
-            color: #0f0; /* Màu xanh Hacker */
-            font-family: 'Courier New', Courier, monospace;
-            overflow: hidden;
-        }
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VNPT LifeGuard - AI Guardian (Improved)</title>
+  <style>
+    :root{
+      --bg:#000;
+      --accent:#0f0;
+      --muted:rgba(0,20,0,0.7);
+      --danger:#ff3333;
+    }
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--accent);font-family: 'Courier New', Courier, monospace;overflow:hidden;}
+    #input_video{display:none;}
+    #output_canvas{
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      transform: scaleX(-1); /* mirror */
+      z-index: 1;
+      background:#000;
+    }
+    #hud-layer{
+      position:absolute;top:0;left:0;width:100%;height:100%;z-index:2;pointer-events:none;
+      display:flex;flex-direction:column;justify-content:space-between;padding:18px;box-sizing:border-box;
+    }
+    .status-bar{
+      background:var(--muted);padding:12px;border:1px solid var(--accent);border-radius:6px;
+      pointer-events:auto;
+    }
+    #controls{
+      display:flex;gap:10px;align-items:center;
+    }
+    button, select {
+      padding:10px 14px;font-size:15px;border:none;background:var(--accent);color:#000;cursor:pointer;font-weight:700;border-radius:4px;
+    }
+    button.secondary{background:transparent;color:var(--accent);border:1px solid var(--accent);}
+    #alert-box{
+      display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(255,0,0,0.85);
+      color:white;padding:24px;font-size:20px;text-align:center;border:4px solid red;border-radius:8px;animation:blink .6s infinite alternate;z-index:5;
+    }
+    @keyframes blink{from{opacity:1}to{opacity:0.6}}
+    #start-screen{
+      position:absolute;top:0;left:0;width:100%;height:100%;background:#000;z-index:10;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:10px;
+    }
+    .small{font-size:13px;color:#9f9;}
+    #debug-panel{display:flex;gap:12px;align-items:center;}
+    #api-status{font-weight:700;}
+    .right-bar{align-self:flex-end;pointer-events:auto;}
+  </style>
 
-        /* Video ẩn đi, chỉ hiện Canvas đè lên */
-        #input_video { display: none; }
-        
-        #output_canvas {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100vw; height: 100vh;
-            transform: scaleX(-1); /* Lật gương camera */
-            z-index: 1;
-        }
-
-        /* Giao diện HUD điều khiển */
-        #hud-layer {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            z-index: 2;
-            pointer-events: none; /* Để bấm xuyên qua canvas */
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 20px;
-            box-sizing: border-box;
-        }
-
-        .status-bar {
-            background: rgba(0, 20, 0, 0.7);
-            padding: 15px;
-            border: 1px solid #0f0;
-            border-radius: 5px;
-        }
-
-        #alert-box {
-            display: none;
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(255, 0, 0, 0.8);
-            color: white;
-            padding: 30px;
-            font-size: 24px;
-            text-align: center;
-            border: 3px solid red;
-            animation: blink 0.5s infinite alternate;
-        }
-
-        @keyframes blink { from {opacity: 1;} to {opacity: 0.5;} }
-
-        /* Nút Start ban đầu */
-        #start-screen {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            background: #000;
-            z-index: 10;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-
-        button {
-            padding: 15px 30px;
-            font-size: 20px;
-            background: #0f0;
-            color: #000;
-            border: none;
-            cursor: pointer;
-            font-weight: bold;
-        }
-    </style>
-
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <!-- Mediapipe libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 </head>
 <body>
+  <div id="start-screen">
+    <h1>VNPT LIFEGUARD SYSTEM</h1>
+    <p>AI Giám sát Sức khỏe & An toàn Lái xe</p>
+    <div style="display:flex;gap:10px">
+      <button id="start-btn">KHỞI ĐỘNG HỆ THỐNG</button>
+      <button id="stop-btn" class="secondary" disabled>DỪNG</button>
+    </div>
+    <div class="small">Yêu cầu quyền camera để hoạt động. Bấm "KHỞI ĐỘNG" và cho phép camera.</div>
+  </div>
 
-    <div id="start-screen">
-        <h1>VNPT LIFEGUARD SYSTEM</h1>
-        <p>AI Giám sát Sức khỏe & An toàn Lái xe</p>
-        <button onclick="startSystem()">KHỞI ĐỘNG HỆ THỐNG</button>
+  <video id="input_video" playsinline></video>
+  <canvas id="output_canvas"></canvas>
+
+  <div id="hud-layer">
+    <div class="status-bar" style="display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        USER: <span id="user-name">Đang định danh...</span>
+        &nbsp;|&nbsp; STATUS: <span id="system-status">IDLE</span>
+      </div>
+      <div id="controls">
+        <label class="small" style="pointer-events:auto;color:var(--accent);">Camera:
+          <select id="camera-select"></select>
+        </label>
+        <button id="toggle-debug" class="secondary">Debug: OFF</button>
+        <button id="stop-btn-2" class="secondary" disabled>DỪNG</button>
+      </div>
     </div>
 
-    <video id="input_video"></video>
-    <canvas id="output_canvas"></canvas>
-
-    <div id="hud-layer">
-        <div class="status-bar">
-            <div>USER: <span id="user-name">Đang định danh...</span></div>
-            <div>STATUS: <span id="system-status">MONITORING</span></div>
-        </div>
-        
-        <div id="alert-box">
-            ⚠ CẢNH BÁO NGUY HIỂM ⚠<br>
-            <span id="alert-msg">Đang gọi cấp cứu...</span>
-        </div>
-
-        <div class="status-bar" style="text-align: right;">
-            <div>EAR (Mắt): <span id="debug-ear">0.00</span></div>
-            <div>ASYM (Miệng): <span id="debug-asym">0.00</span></div>
-            <div>VNPT API: <span id="api-status">READY</span></div>
-        </div>
+    <div id="alert-box">
+      ⚠ CẢNH BÁO NGUY HIỂM ⚠<br>
+      <span id="alert-msg">Đang gửi SOS...</span>
     </div>
 
-    <script>
-        // 1. Cấu hình biến Global
-        const videoElement = document.getElementById('input_video');
-        const canvasElement = document.getElementById('output_canvas');
-        const canvasCtx = canvasElement.getContext('2d');
-        
-        // Trạng thái hệ thống: 'NORMAL', 'SUSPECT', 'CHALLENGE', 'SOS'
-        let currentState = 'NORMAL'; 
-        let lastChallengeTime = 0;
+    <div class="status-bar right-bar" style="text-align:right;">
+      <div id="debug-panel">
+        <div>EAR: <strong id="debug-ear">0.00</strong></div>
+        <div>ASYM: <strong id="debug-asym">0.00</strong></div>
+        <div>MW/FaceW: <strong id="debug-mouthratio">0.00</strong></div>
+        <div>VNPT API: <span id="api-status">READY</span></div>
+      </div>
+    </div>
+  </div>
 
-        // Các điểm Landmark quan trọng (Theo bản đồ MediaPipe)
-        const L_EYE = [33, 160, 158, 133, 153, 144]; 
-        const R_EYE = [362, 385, 387, 263, 373, 380];
-        const NOSE_TIP = 1;
-        const MOUTH_L = 61;
-        const MOUTH_R = 291;
-        const LIP_TOP = 13;
+  <script>
+    // ======= GLOBALS & CONFIG =======
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const startScreen = document.getElementById('start-screen');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const stopBtn2 = document.getElementById('stop-btn-2');
+    const cameraSelect = document.getElementById('camera-select');
+    const toggleDebugBtn = document.getElementById('toggle-debug');
 
-        // --- HÀM KHỞI ĐỘNG ---
-        function startSystem() {
-            document.getElementById('start-screen').style.display = 'none';
-            
-            // Giả lập gọi API VNPT Face Search để Login
-            mockVnptLogin(); 
+    let faceMesh = null;
+    let camera = null;
+    let isRunning = false;
+    let debugMode = false;
 
-            // Khởi tạo MediaPipe
-            const faceMesh = new FaceMesh({locateFile: (file) => {
-                return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-            }});
+    // Face landmark indices
+    const L_EYE = [33, 160, 158, 133, 153, 144];
+    const R_EYE = [362, 385, 387, 263, 373, 380];
+    const NOSE_TIP = 1;
+    const MOUTH_L = 61;
+    const MOUTH_R = 291;
+    const LIP_TOP = 13;
 
-            faceMesh.setOptions({
-                maxNumFaces: 1,
-                refineLandmarks: true,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
+    // State machine
+    let currentState = 'IDLE'; // IDLE, NORMAL, SUSPECT, CHALLENGE, SOS
+    let lastChallengeTime = 0;
+    let sosSent = false;
 
-            faceMesh.onResults(onResults);
+    // EAR smoothing and counters
+    const EAR_WINDOW_SIZE = 6;
+    const earWindow = [];
+    let earClosedFrames = 0;
+    const EAR_THRESHOLD = 0.24; // tuned threshold
+    const EAR_CONSEC_FRAMES = 8; // threshold frames to consider closed
 
-            const camera = new Camera(videoElement, {
-                onFrame: async () => {
-                    await faceMesh.send({image: videoElement});
-                },
-                width: 1280,
-                height: 720
-            });
-            camera.start();
-            speak("Hệ thống Life Guard đã kích hoạt. Chúc bạn lái xe an toàn.");
+    // Asymmetry thresholds (normalized)
+    const ASYM_THRESHOLD = 0.06; // normalized difference (e.g., 6% of face width)
+
+    // Challenge timeout
+    const CHALLENGE_TIMEOUT_MS = 5000;
+
+    // Helper to resize canvas to viewport
+    function resizeCanvas() {
+      canvasElement.width = window.innerWidth;
+      canvasElement.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // ======= INIT & CAMERA =======
+    async function listCameras() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const cams = devices.filter(d => d.kind === 'videoinput');
+        cameraSelect.innerHTML = '';
+        cams.forEach((c, i) => {
+          const opt = document.createElement('option');
+          opt.value = c.deviceId;
+          opt.text = c.label || `Camera ${i+1}`;
+          cameraSelect.appendChild(opt);
+        });
+      } catch (e) {
+        console.warn('Không thể liệt kê camera:', e);
+      }
+    }
+    listCameras();
+
+    async function startSystem() {
+      startBtn.disabled = true;
+      startScreen.style.display = 'none';
+      stopBtn.disabled = false;
+      stopBtn2.disabled = false;
+      isRunning = true;
+      currentState = 'NORMAL';
+      document.getElementById('system-status').innerText = 'MONITORING';
+      document.getElementById('system-status').style.color = getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#0f0';
+      mockVnptLogin();
+
+      // Setup FaceMesh
+      faceMesh = new FaceMesh({locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+      }});
+      faceMesh.setOptions({
+        maxNumFaces: 1,
+        refineLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      faceMesh.onResults(onResults);
+
+      // Create Camera wrapper using chosen deviceId (if available)
+      const deviceId = cameraSelect.value || undefined;
+      const constraints = {width: 1280, height: 720, facingMode: 'user'};
+      if (deviceId) constraints.deviceId = {exact: deviceId};
+
+      try {
+        camera = new Camera(videoElement, {
+          onFrame: async () => {
+            await faceMesh.send({image: videoElement});
+          },
+          width: 1280,
+          height: 720
+        });
+        await camera.start();
+        speakSafe("Hệ thống Life Guard đã kích hoạt. Chúc bạn lái xe an toàn.");
+      } catch (err) {
+        console.error('Không thể khởi động camera:', err);
+        alert('Lỗi khi bật camera: ' + err.message);
+        stopSystem();
+      }
+    }
+
+    function stopSystem() {
+      isRunning = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      stopBtn2.disabled = true;
+      startScreen.style.display = '';
+      if (camera && camera.stop) {
+        try { camera.stop(); } catch(e){}
+      }
+      if (videoElement && videoElement.srcObject) {
+        try {
+          const tracks = videoElement.srcObject.getTracks();
+          tracks.forEach(t => t.stop());
+          videoElement.srcObject = null;
+        } catch(e){}
+      }
+      faceMesh = null;
+      currentState = 'IDLE';
+      document.getElementById('system-status').innerText = 'IDLE';
+      document.getElementById('api-status').innerText = 'READY';
+      document.getElementById('alert-box').style.display = 'none';
+      sosSent = false;
+      earWindow.length = 0;
+      earClosedFrames = 0;
+    }
+
+    // Allow stop buttons
+    startBtn.addEventListener('click', startSystem);
+    stopBtn.addEventListener('click', stopSystem);
+    stopBtn2.addEventListener('click', stopSystem);
+    toggleDebugBtn.addEventListener('click', () => {
+      debugMode = !debugMode;
+      toggleDebugBtn.innerText = 'Debug: ' + (debugMode ? 'ON' : 'OFF');
+    });
+
+    // Re-list cameras if devices change
+    navigator.mediaDevices && navigator.mediaDevices.addEventListener && navigator.mediaDevices.addEventListener('devicechange', listCameras);
+
+    // Pause processing when tab is hidden
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        // pause
+        if (camera && camera.pause) try { camera.pause(); } catch(e){}
+      } else {
+        if (camera && camera.resume) try { camera.resume(); } catch(e){}
+      }
+    });
+
+    // ======= PROCESSING =======
+    function onResults(results) {
+      if (!isRunning) return;
+
+      resizeCanvas();
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // Draw camera image (fit to canvas preserving aspect)
+      if (results.image) {
+        // drawImage will be mirrored visually by CSS transform
+        const img = results.image;
+        // scale to cover
+        canvasCtx.drawImage(img, 0, 0, canvasElement.width, canvasElement.height);
+      }
+
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const lm = results.multiFaceLandmarks[0];
+
+        // Optional debug drawing
+        if (debugMode && typeof drawConnectors !== 'undefined' && typeof FACEMESH_TESSELATION !== 'undefined') {
+          drawConnectors(canvasCtx, lm, FACEMESH_TESSELATION, {color:'#C0C0C070', lineWidth:1});
         }
 
-        // --- HÀM XỬ LÝ KẾT QUẢ TỪ AI (Vòng lặp chính) ---
-        function onResults(results) {
-            // Vẽ lại khung hình
-            canvasElement.width = window.innerWidth;
-            canvasElement.height = window.innerHeight;
-            canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+        analyzeHealth(lm);
+      } else {
+        // No face found -> reset some counters, but keep monitoring
+        document.getElementById('debug-ear').innerText = '0.00';
+        document.getElementById('debug-asym').innerText = '0.00';
+        document.getElementById('debug-mouthratio').innerText = '0.00';
+        // slowly recover state
+        if (currentState !== 'NORMAL' && currentState !== 'IDLE') {
+          // if face lost during challenge, go back to SUSPECT so user will be re-evaluated when face returns
+          currentState = 'NORMAL';
+          document.getElementById('system-status').innerText = 'MONITORING';
+          document.getElementById('system-status').style.color = '#0f0';
+        }
+      }
 
-            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-                const landmarks = results.multiFaceLandmarks[0];
-                
-                // Vẽ lưới mặt (Debug Mode)
-                drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#C0C0C070', lineWidth: 1});
+      canvasCtx.restore();
+    }
 
-                // --- LOGIC PHÂN TÍCH SỨC KHỎE ---
-                analyzeHealth(landmarks);
-            }
-            canvasCtx.restore();
+    function analyzeHealth(lm) {
+      // Helper: compute Euclidean distance between two normalized landmarks and optionally normalized by face width later
+      const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+      // EAR calculation for left & right
+      const leftEAR = calculateEAR(lm, L_EYE);
+      const rightEAR = calculateEAR(lm, R_EYE);
+      const ear = (leftEAR + rightEAR) / 2.0;
+
+      // Smooth EAR with moving average
+      earWindow.push(ear);
+      if (earWindow.length > EAR_WINDOW_SIZE) earWindow.shift();
+      const avgEAR = earWindow.reduce((s,v)=>s+v,0)/earWindow.length;
+
+      // face width approx (normalized)
+      const faceWidth = dist(lm[33], lm[263]) || 1.0;
+
+      // Asymmetry: difference of distances nose->mouth corners normalized by face width
+      const nose = lm[NOSE_TIP];
+      const mouthL = lm[MOUTH_L];
+      const mouthR = lm[MOUTH_R];
+      const distL = dist(mouthL, nose);
+      const distR = dist(mouthR, nose);
+      const asymRaw = Math.abs(distL - distR);
+      const asymNormalized = asymRaw / faceWidth; // relative to face width
+
+      // Mouth width normalized
+      const mouthWidth = dist(mouthL, mouthR) / faceWidth;
+
+      // Update UI
+      document.getElementById('debug-ear').innerText = avgEAR.toFixed(2);
+      document.getElementById('debug-asym').innerText = (asymNormalized*100).toFixed(2);
+      document.getElementById('debug-mouthratio').innerText = mouthWidth.toFixed(2);
+
+      // State machine
+      if (currentState === 'NORMAL' || currentState === 'MONITORING') {
+        // Check EAR for drowsiness
+        if (avgEAR < EAR_THRESHOLD) {
+          earClosedFrames += 1;
+        } else {
+          earClosedFrames = 0;
         }
 
-        // --- LOGIC TOÁN HỌC & Y KHOA (PHẦN QUAN TRỌNG NHẤT) ---
-        function analyzeHealth(lm) {
-            // 1. Tính chỉ số Mắt (EAR) - Phát hiện buồn ngủ
-            let leftEAR = calculateEAR(lm, L_EYE);
-            let rightEAR = calculateEAR(lm, R_EYE);
-            let avgEAR = (leftEAR + rightEAR) / 2;
-
-            // 2. Tính chỉ số Lệch miệng (Asymmetry) - Phát hiện đột quỵ
-            let nose = lm[NOSE_TIP];
-            let mouthL = lm[MOUTH_L];
-            let mouthR = lm[MOUTH_R];
-            
-            // Tính khoảng cách Euclidean
-            let distL = Math.hypot(mouthL.x - nose.x, mouthL.y - nose.y);
-            let distR = Math.hypot(mouthR.x - nose.x, mouthR.y - nose.y);
-            let asymmetry = Math.abs(distL - distR) * 100; // Nhân 100 cho dễ đọc
-
-            // Hiển thị chỉ số lên màn hình
-            document.getElementById('debug-ear').innerText = avgEAR.toFixed(2);
-            document.getElementById('debug-asym').innerText = asymmetry.toFixed(2);
-
-            // --- STATE MACHINE (Máy trạng thái) ---
-            
-            if (currentState === 'NORMAL') {
-                // Rule 1: Mắt nhắm quá lâu (EAR < 0.25)
-                // Rule 2: Miệng lệch (Asymmetry > 5.0 - số này cần tinh chỉnh khi test)
-                if (avgEAR < 0.25 || asymmetry > 10.0) {
-                    currentState = 'SUSPECT';
-                    triggerChallenge();
-                }
-            } 
-            else if (currentState === 'CHALLENGE') {
-                // Đang chờ người dùng cười để xác nhận
-                // Logic cười: Khóe miệng cao hơn môi trên
-                let isSmiling = (lm[MOUTH_L].y < lm[LIP_TOP].y) && (lm[MOUTH_R].y < lm[LIP_TOP].y);
-                
-                if (isSmiling) {
-                    speak("Tốt lắm, bạn vẫn tỉnh táo.");
-                    resetState();
-                } else if (Date.now() - lastChallengeTime > 5000) {
-                    // Hết 5 giây mà không cười -> SOS
-                    triggerSOS();
-                }
-            }
+        if (earClosedFrames >= EAR_CONSEC_FRAMES || asymNormalized > ASYM_THRESHOLD) {
+          currentState = 'SUSPECT';
+          triggerChallenge();
         }
+      } else if (currentState === 'CHALLENGE') {
+        // Detect smile: corners higher than lip top and mouth sufficiently wide (normalized)
+        const cornersAboveTop = (mouthL.y < lm[LIP_TOP].y) && (mouthR.y < lm[LIP_TOP].y);
+        const isSmiling = cornersAboveTop && (mouthWidth > 0.30);
 
-        // --- CÁC HÀM HỖ TRỢ ---
-
-        function calculateEAR(lm, indices) {
-            // Tính EAR đơn giản: (Cao / Rộng)
-            // indices: [trái, mi_tren_1, mi_tren_2, phai, mi_duoi_1, mi_duoi_2]
-            let v1 = Math.hypot(lm[indices[1]].y - lm[indices[5]].y, lm[indices[1]].x - lm[indices[5]].x);
-            let v2 = Math.hypot(lm[indices[2]].y - lm[indices[4]].y, lm[indices[2]].x - lm[indices[4]].x);
-            let hor = Math.hypot(lm[indices[0]].y - lm[indices[3]].y, lm[indices[0]].x - lm[indices[3]].x);
-            return (v1 + v2) / (2.0 * hor);
+        if (isSmiling) {
+          speakSafe("Tốt lắm, bạn vẫn tỉnh táo.");
+          resetState();
+        } else if (Date.now() - lastChallengeTime > CHALLENGE_TIMEOUT_MS) {
+          triggerSOS();
+        } else {
+          // keep waiting
         }
+      }
+      // If in SOS, nothing to do here (could add resend logic)
+    }
 
-        function triggerChallenge() {
-            currentState = 'CHALLENGE';
-            lastChallengeTime = Date.now();
-            document.getElementById('system-status').innerText = "CHALLENGING...";
-            document.getElementById('system-status').style.color = "yellow";
-            
-            // AI NÓI:
-            speak("Cảnh báo! Tôi thấy bạn mệt mỏi. Hãy cười tươi lên nào!");
-        }
+    function calculateEAR(lm, indices) {
+      // using normalized coordinates
+      const p = i => lm[indices[i]];
+      const v1 = Math.hypot(p(1).x - p(5).x, p(1).y - p(5).y);
+      const v2 = Math.hypot(p(2).x - p(4).x, p(2).y - p(4).y);
+      const hor = Math.hypot(p(0).x - p(3).x, p(0).y - p(3).y) || 1e-6;
+      return (v1 + v2) / (2.0 * hor);
+    }
 
-        function triggerSOS() {
-            if (currentState === 'SOS') return; // Tránh gọi lặp lại
-            currentState = 'SOS';
-            
-            // Hiện cảnh báo đỏ
-            document.getElementById('alert-box').style.display = 'block';
-            speak("Nguy hiểm! Phát hiện dấu hiệu đột quỵ. Đang gửi vị trí cho bệnh viện.");
+    function triggerChallenge() {
+      currentState = 'CHALLENGE';
+      lastChallengeTime = Date.now();
+      document.getElementById('system-status').innerText = "CHALLENGING...";
+      document.getElementById('system-status').style.color = 'yellow';
+      speakSafe("Cảnh báo! Tôi thấy bạn mệt mỏi. Hãy cười tươi lên nào!");
+    }
 
-            // --- GIẢ LẬP GỌI API VNPT ---
-            console.log(">>> CALLING VNPT API: /ai/v5/face/search (Identify Victim)");
-            console.log(">>> CALLING VNPT API: /location/gps (Get Coordinates)");
-            console.log(">>> SENDING SMS TO 115: [SOS] Victim NguyenVanA at 10.76, 106.66");
-            
-            document.getElementById('api-status').innerText = "SENDING SOS...";
-        }
+    function triggerSOS() {
+      if (currentState === 'SOS' || sosSent) return;
+      currentState = 'SOS';
+      sosSent = true;
+      document.getElementById('alert-box').style.display = 'block';
+      document.getElementById('alert-msg').innerText = 'Phát hiện dấu hiệu khẩn cấp. Đang gửi SOS...';
+      document.getElementById('api-status').innerText = 'SENDING SOS...';
+      speakSafe("Nguy hiểm! Phát hiện dấu hiệu đột quỵ. Đang gửi vị trí cho bệnh viện.");
 
-        function resetState() {
-            currentState = 'NORMAL';
-            document.getElementById('system-status').innerText = "MONITORING";
-            document.getElementById('system-status').style.color = "#0f0";
-            document.getElementById('alert-box').style.display = 'none';
-        }
+      // Simulated VNPT API calls (replace with real fetch endpoints)
+      console.log(">>> CALLING VNPT API: /ai/v5/face/search (Identify Victim)");
+      console.log(">>> CALLING VNPT API: /location/gps (Get Coordinates)");
+      console.log(">>> SENDING SMS TO 115: [SOS] Victim (simulated) at lat,lon");
 
-        // Hàm Text-to-Speech (Giọng nói AI)
-        function speak(text) {
-            let msg = new SpeechSynthesisUtterance();
-            msg.text = text;
-            msg.lang = 'vi-VN';
-            window.speechSynthesis.speak(msg);
-        }
+      // Example placeholder: simulate network call
+      setTimeout(() => {
+        document.getElementById('api-status').innerText = 'SOS SENT';
+        document.getElementById('alert-msg').innerText = 'SOS đã gửi tới trung tâm y tế. Vui lòng đợi hỗ trợ.';
+      }, 2000);
+    }
 
-        // Hàm giả lập Login VNPT
-        function mockVnptLogin() {
-            // Thực tế bạn sẽ gọi fetch() tới API VNPT ở đây
-            setTimeout(() => {
-                document.getElementById('user-name').innerText = "NGUYEN VAN A (ID: 8839)";
-            }, 2000);
-        }
+    function resetState() {
+      currentState = 'NORMAL';
+      document.getElementById('system-status').innerText = 'MONITORING';
+      document.getElementById('system-status').style.color = '#0f0';
+      document.getElementById('alert-box').style.display = 'none';
+      sosSent = false;
+      earWindow.length = 0;
+      earClosedFrames = 0;
+    }
 
-        // Hàm vẽ của MediaPipe (cần import thêm nếu muốn vẽ đẹp, ở đây dùng bản simple)
-        // Lưu ý: code này dùng biến global FaceMesh từ CDN
-    </script>
+    // Text-to-speech but ensure allowed only after user gesture (startBtn clicked)
+    function speakSafe(text) {
+      try {
+        const msg = new SpeechSynthesisUtterance();
+        msg.text = text;
+        msg.lang = 'vi-VN';
+        window.speechSynthesis.cancel(); // stop previous
+        window.speechSynthesis.speak(msg);
+      } catch (e) {
+        console.warn('TTS error', e);
+      }
+    }
+
+    // Mock VNPT login to populate user name (simulate network)
+    function mockVnptLogin() {
+      document.getElementById('api-status').innerText = 'IDENTIFYING...';
+      setTimeout(() => {
+        document.getElementById('user-name').innerText = "NGUYEN VAN A (ID: 8839)";
+        document.getElementById('api-status').innerText = 'READY';
+      }, 1200);
+    }
+
+    // Ensure we only call TTS after user gesture: startBtn click calls speakSafe
+
+    // Initial small camera selection attempt
+    (async () => {
+      await listCameras();
+      // Pre-select first camera if available
+      if (cameraSelect.options.length > 0) cameraSelect.selectedIndex = 0;
+    })();
+
+    // End of script
+  </script>
 </body>
 </html>
